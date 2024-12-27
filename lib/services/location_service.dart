@@ -7,15 +7,12 @@ import 'package:userlocation/providers/location_provider.dart';
 class LocationService {
   final LocationProvider _locationProvider = LocationProvider();
   StreamSubscription<Position>? _positionSubscription;
-  Timer? _retryTimer;
-  static const int _retryInterval = 5;
 
   Future<bool> handlePermission() async {
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         _locationProvider.setError('Location services are disabled.');
-        _scheduleRetry();
         return false;
       }
 
@@ -24,7 +21,6 @@ class LocationService {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
           _locationProvider.setError('Location permissions are denied.');
-          _scheduleRetry();
           return false;
         }
       }
@@ -42,18 +38,16 @@ class LocationService {
     }
   }
 
-  void _scheduleRetry() {
-    _retryTimer?.cancel();
-    _retryTimer = Timer(Duration(seconds: _retryInterval), () {
-      startLocationStream();
-    });
-  }
-
   Future<void> getAddressFromLatLng(Position position) async {
     try {
       List<Placemark> placemarks = await placemarkFromCoordinates(
         position.latitude,
         position.longitude,
+      ).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw TimeoutException('Failed to get address: operation timed out');
+        },
       );
 
       if (placemarks.isNotEmpty) {
@@ -70,8 +64,18 @@ class LocationService {
           thoroughfare: place.thoroughfare,
         );
       }
+    } on TimeoutException catch (e) {
+      // For geocoding timeout, we'll just update coordinates without address
+      _locationProvider.updateLocation(
+        lat: position.latitude,
+        lng: position.longitude,
+      );
     } catch (e) {
-      _locationProvider.setError('Error getting address details: $e');
+      // For other errors, we'll still update coordinates
+      _locationProvider.updateLocation(
+        lat: position.latitude,
+        lng: position.longitude,
+      );
     }
   }
 
@@ -81,16 +85,25 @@ class LocationService {
 
     try {
       final hasPermission = await handlePermission();
-      if (!hasPermission) return;
+      if (!hasPermission) {
+        _locationProvider.setLoading(false);
+        return;
+      }
 
       Position position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 10,
-        ),
+        desiredAccuracy: LocationAccuracy.high,
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          throw TimeoutException(
+              'Failed to get current location: operation timed out');
+        },
       );
 
       await getAddressFromLatLng(position);
+    } on TimeoutException catch (e) {
+      _locationProvider
+          .setError('Location request timed out. Please try again.');
     } catch (e) {
       _locationProvider.setError('Error getting current location: $e');
     } finally {
@@ -100,7 +113,6 @@ class LocationService {
 
   void startLocationStream() async {
     _positionSubscription?.cancel();
-    _retryTimer?.cancel();
 
     final hasPermission = await handlePermission();
     if (!hasPermission) return;
@@ -110,27 +122,25 @@ class LocationService {
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
           distanceFilter: 10,
-          timeLimit: Duration(seconds: 15),
         ),
       ).listen(
         (Position position) async {
+          // Clear any previous errors
+          _locationProvider.setError(null);
           await getAddressFromLatLng(position);
         },
         onError: (error) {
           _locationProvider.setError('Location stream error: $error');
-          _scheduleRetry();
         },
         cancelOnError: false,
       );
     } catch (e) {
       _locationProvider.setError('Error starting location stream: $e');
-      _scheduleRetry();
     }
   }
 
   void stopLocationStream() {
     _positionSubscription?.cancel();
-    _retryTimer?.cancel();
     _locationProvider.reset();
   }
 

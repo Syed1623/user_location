@@ -11,8 +11,11 @@ class LocationStreamPage extends StatefulWidget {
   State<LocationStreamPage> createState() => _LocationStreamPageState();
 }
 
-class _LocationStreamPageState extends State<LocationStreamPage> {
+class _LocationStreamPageState extends State<LocationStreamPage>
+    with SingleTickerProviderStateMixin {
   final LocationService _locationService = LocationService();
+  late AnimationController _animationController;
+  late Animation<Offset> _animation;
 
   @override
   void initState() {
@@ -20,11 +23,22 @@ class _LocationStreamPageState extends State<LocationStreamPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _locationService.startLocationStream();
     });
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+    _animation = Tween<Offset>(
+      begin: const Offset(0, 0.1),
+      end: Offset.zero,
+    ).animate(
+        CurvedAnimation(parent: _animationController, curve: Curves.easeIn));
+    _animationController.forward();
   }
 
   @override
   void dispose() {
     _locationService.dispose();
+    _animationController.dispose();
     super.dispose();
   }
 
@@ -41,7 +55,11 @@ class _LocationStreamPageState extends State<LocationStreamPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => _locationService.getCurrentLocation(),
+            onPressed: () {
+              _locationService.getCurrentLocation();
+              _animationController.reset();
+              _animationController.forward();
+            },
           ),
         ],
       ),
@@ -67,12 +85,13 @@ class _LocationStreamPageState extends State<LocationStreamPage> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                    const Icon(Icons.error_outline,
+                        size: 48, color: Colors.red),
                     const SizedBox(height: 16),
                     Text(
                       locationProvider.error!,
                       textAlign: TextAlign.center,
-                      style:const TextStyle(color: Colors.red),
+                      style: const TextStyle(color: Colors.red),
                     ),
                     const SizedBox(height: 16),
                     ElevatedButton(
@@ -132,23 +151,26 @@ class _LocationStreamPageState extends State<LocationStreamPage> {
     required String title,
     required List<Widget> children,
   }) {
-    return Card(
-      elevation: 4,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+    return SlideTransition(
+      position: _animation,
+      child: Card(
+        elevation: 4,
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            ...children,
-          ],
+              const SizedBox(height: 8),
+              ...children,
+            ],
+          ),
         ),
       ),
     );
