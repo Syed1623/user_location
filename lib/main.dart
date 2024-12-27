@@ -9,7 +9,7 @@ void main() {
       providers: [
         ChangeNotifierProvider(create: (_) => LocationProvider()),
       ],
-      child: MyApp(),
+      child: const MyApp(),
     ),
   );
 }
