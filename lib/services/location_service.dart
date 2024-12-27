@@ -91,19 +91,13 @@ class LocationService {
       }
 
       Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      ).timeout(
-        const Duration(seconds: 15),
-        onTimeout: () {
-          throw TimeoutException(
-              'Failed to get current location: operation timed out');
-        },
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 10,
+        ),
       );
 
       await getAddressFromLatLng(position);
-    } on TimeoutException catch (e) {
-      _locationProvider
-          .setError('Location request timed out. Please try again.');
     } catch (e) {
       _locationProvider.setError('Error getting current location: $e');
     } finally {
